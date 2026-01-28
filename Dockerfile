@@ -67,6 +67,8 @@ RUN cd /tmp/build/ffmpeg-${FFMPEG_VERSION} && \
 	  --enable-libtheora \
 	  --enable-libvorbis \
 	  --enable-librtmp \
+	  --enable-libaom \
+	  --enable-libsvtav1 \
 	  --enable-postproc \
 	  --enable-swresample \ 
 	  --enable-libfreetype \
@@ -90,7 +92,8 @@ RUN apt-get update && \
 	apt-get install -y \
 		ca-certificates openssl libpcre3-dev \
 		librtmp1 libtheora0 libvorbis-dev libmp3lame0 \
-		libvpx7 libx264-dev libx265-dev && \
+		libvpx7 libx264-dev libx265-dev \
+		libaom3 libsvtav1enc1 && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy files from build stage to final stage	
