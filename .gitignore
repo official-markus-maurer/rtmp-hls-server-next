@@ -1,0 +1,23 @@
+# Node.js
+node_modules/
+npm-debug.log
+
+# Stream Output (Public)
+node-server/public/
+
+# Binaries and Dependencies
+bin/
+*.exe
+*.zip
+*.7z
+
+# OS Generated
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
