@@ -21,7 +21,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Build SVT-AV1 (required for FFmpeg 8.0+)
-RUN cd /tmp/build && \
+RUN mkdir -p /tmp/build && \
+    cd /tmp/build && \
     git clone https://gitlab.com/AOMediaCodec/SVT-AV1.git && \
     cd SVT-AV1 && \
     mkdir -p Build && \
