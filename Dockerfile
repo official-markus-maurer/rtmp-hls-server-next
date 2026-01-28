@@ -13,7 +13,7 @@ ARG  FFMPEG_VERSION=8.0.1
 RUN apt-get update && \
 	apt-get install -y \
 		wget build-essential ca-certificates \
-		openssl libssl-dev yasm \
+		openssl libssl-dev yasm pkg-config nasm zlib1g-dev \
 		libpcre3-dev librtmp-dev libtheora-dev \
 		libvorbis-dev libvpx-dev libfreetype6-dev \
 		libmp3lame-dev libx264-dev libx265-dev && \
