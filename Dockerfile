@@ -24,6 +24,7 @@ RUN apt-get update && \
 RUN cd /tmp/build && \
     git clone https://gitlab.com/AOMediaCodec/SVT-AV1.git && \
     cd SVT-AV1 && \
+    mkdir -p Build && \
     cd Build && \
     cmake .. -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_DEC=OFF -DBUILD_SHARED_LIBS=OFF && \
     make -j $(getconf _NPROCESSORS_ONLN) && \

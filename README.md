@@ -71,6 +71,14 @@ Go to Settings > Stream, choose the following settings:
 	 `http://<server ip>:8080/dash/<stream-key>_src.mpd` respectively.
 	 * Click Play.
 
+### To view the H.265 (HEVC) or AV1 streams
+ * **Streaming URLs:**
+   * Stream to `rtmp://your-server/live_h265/streamKey` for H.265.
+   * Stream to `rtmp://your-server/live_av1/streamKey` for AV1.
+ * **Playback URLs:**
+   * Playback URL (H.265): `http://your-server:8080/hls_h265/streamKey.m3u8`
+   * Playback URL (AV1): `http://your-server:8080/hls_av1/streamKey.m3u8`
+
 * **Using provided web players:** <br/>
 The provided demo players assume the stream-key is called `test` and the player is opened in localhost. 
 	* To play RTMP content (requires Flash): `http://localhost:8080/players/rtmp.html` 

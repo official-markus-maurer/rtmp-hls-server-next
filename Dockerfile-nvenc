@@ -1,19 +1,20 @@
 ##### Building stage #####
-FROM nvidia/cuda:11.1-devel-ubuntu20.04 as builder
+FROM nvidia/cuda:12.3.1-devel-ubuntu22.04 as builder
 MAINTAINER Kieran Harkin <kieran+git@harkin.me>
 
 # Versions of nginx, rtmp-module and ffmpeg 
 ENV  TZ=Europe/Dublin
-ARG  NGINX_VERSION=1.19.4
-ARG  NGINX_RTMP_MODULE_VERSION=1.2.1
-ARG  FFMPEG_VERSION=4.3.1
+ARG  NGINX_VERSION=1.29.4
+ARG  NGINX_RTMP_MODULE_VERSION=master
+ARG  FFMPEG_VERSION=8.0.1
 
 # Install dependencies
-RUN apt update && \
-	apt install -y --no-install-recommends \
+RUN apt-get update && \
+	apt-get install -y --no-install-recommends \
 		wget gcc make autoconf automake ca-certificates \
-		openssl libssl-dev yasm git pkg-config \
-		libpcre3-dev librtmp-dev libtheora-dev && \
+		openssl libssl-dev yasm git pkg-config nasm zlib1g-dev \
+		libpcre3-dev librtmp-dev libtheora-dev libvorbis-dev \
+		libvpx-dev libfreetype6-dev libmp3lame-dev libx264-dev libx265-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Download nginx source
@@ -25,9 +26,9 @@ RUN mkdir -p /tmp/build && \
 
 # Download rtmp-module source
 RUN cd /tmp/build && \
-    wget https://github.com/arut/nginx-rtmp-module/archive/v${NGINX_RTMP_MODULE_VERSION}.tar.gz && \
-    tar -zxf v${NGINX_RTMP_MODULE_VERSION}.tar.gz && \
-	rm v${NGINX_RTMP_MODULE_VERSION}.tar.gz
+    wget https://github.com/arut/nginx-rtmp-module/archive/${NGINX_RTMP_MODULE_VERSION}.tar.gz && \
+    tar -zxf ${NGINX_RTMP_MODULE_VERSION}.tar.gz && \
+	rm ${NGINX_RTMP_MODULE_VERSION}.tar.gz
 
 # Build nginx with nginx-rtmp module
 RUN cd /tmp/build/nginx-${NGINX_VERSION} && \
@@ -62,10 +63,23 @@ RUN git clone https://git.videolan.org/git/ffmpeg/nv-codec-headers.git && \
 RUN cd /tmp/build/ffmpeg-${FFMPEG_VERSION} && \
   ./configure \
           --prefix=/app/ffmpeg \
+	  --enable-version3 \
+	  --enable-gpl \
+	  --enable-nonfree \
+	  --enable-small \
+	  --enable-libx264 \
+	  --enable-libx265 \
+	  --enable-libvpx \
+	  --enable-libtheora \
+	  --enable-libvorbis \
+	  --enable-librtmp \
+	  --enable-postproc \
+	  --enable-swresample \ 
+	  --enable-libfreetype \
+	  --enable-libmp3lame \
 	  --enable-cuda \
 	  --enable-cuvid \
 	  --enable-nvenc \
-	  --enable-nonfree \
 	  --enable-libnpp \
 	  --extra-cflags=-I/usr/local/cuda/include  \
 	  --extra-ldflags=-L/usr/local/cuda/lib64 \
@@ -81,10 +95,8 @@ RUN cp /tmp/build/nginx-rtmp-module-${NGINX_RTMP_MODULE_VERSION}/stat.xsl /app/n
 	rm -rf /tmp/build
 
 ##### Building the final image #####
-FROM nvidia/cuda:11.1-runtime-ubuntu20.04
+FROM nvidia/cuda:12.3.1-runtime-ubuntu22.04
 
-ENV  NVIDIA_DRIVER_VERSION=455
-ENV  NVIDIA_VISIBLE_DEVICES all
 ENV  NVIDIA_DRIVER_CAPABILITIES compute,video,utility
 
 #Setup nvidia-patch
@@ -97,28 +109,22 @@ RUN mkdir -p /patched-lib && \
 RUN apt-get update && \
 	apt-get install -y --no-install-recommends \
 		ca-certificates openssl libpcre3-dev \
-		librtmp1 libtheora0 libnvidia-decode-$NVIDIA_DRIVER_VERSION libnvidia-encode-$NVIDIA_DRIVER_VERSION && \
+		librtmp1 libtheora0 libvorbis0a libmp3lame0 \
+		libvpx7 libx264-dev libx265-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy files from build stage to final stage	
 COPY --from=builder /app /app
 COPY --from=builder /etc/nginx /etc/nginx
-COPY --from=builder /var/log/nginx /var/log/nginx
-COPY --from=builder /var/lock /var/lock
-COPY --from=builder /var/run/nginx /var/run/nginx
 
-# Forward logs to Docker
-RUN ln -sf /dev/stdout /var/log/nginx/access.log && \
-    ln -sf /dev/stderr /var/log/nginx/error.log
-
-# Copy  nginx config file to container
+# Copy configuration
 COPY conf/nginx-nvenc.conf /etc/nginx/nginx.conf
 
-# Copy  html players to container
-COPY players /app/nginx/html/players
+# Create logs directory
+RUN mkdir -p /var/log/nginx
 
-EXPOSE 1935
-EXPOSE 8080
+# Expose RTMP and HTTP ports
+EXPOSE 1935 8080
 
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["/app/nginx/sbin/nginx", "-g", "daemon off;"]
+# Command to run nginx
+CMD ["/app/docker-entrypoint.sh"]
