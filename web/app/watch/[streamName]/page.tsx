@@ -3,8 +3,7 @@
 
 import { useEffect, useState, use } from 'react';
 import { useSearchParams } from 'next/navigation';
-import Link from 'next/link';
-import { ArrowLeft, Settings } from 'lucide-react';
+import { Settings, Share2, MoreVertical, Heart, UserPlus, MessageSquare } from 'lucide-react';
 
 import { MediaPlayer, MediaProvider } from '@vidstack/react';
 import { DefaultVideoLayout, defaultLayoutIcons } from '@vidstack/react/player/layouts/default';
@@ -23,6 +22,7 @@ interface Stream {
   streamName: string;
   inputCodec: string;
   variants: StreamVariant[];
+  viewers: number;
 }
 
 export default function WatchPage({ params }: { params: Promise<{ streamName: string }> }) {
@@ -32,8 +32,10 @@ export default function WatchPage({ params }: { params: Promise<{ streamName: st
   const appName = searchParams.get('app') || 'live';
 
   const [streamInfo, setStreamInfo] = useState<Stream | null>(null);
-  const [activeVariant, setActiveVariant] = useState('src');
-  const [sourceUrl, setSourceUrl] = useState('');
+  const [viewers, setViewers] = useState(0);
+  
+  // Master playlist URL
+  const sourceUrl = `/hls/${appName}/${streamName}.m3u8`;
 
   // Fetch Stream Info
   useEffect(() => {
@@ -43,96 +45,142 @@ export default function WatchPage({ params }: { params: Promise<{ streamName: st
         if (res.ok) {
           const data: Stream[] = await res.json();
           const found = data.find(s => s.streamName === streamName && s.appName === appName);
-          if (found) setStreamInfo(found);
+          if (found) {
+             setStreamInfo(found);
+             setViewers(found.viewers);
+          }
         }
       } catch (error) {
         console.error('Failed to fetch stream info', error);
       }
     };
+    
     fetchStreamInfo();
+    const interval = setInterval(fetchStreamInfo, 5000); // Poll for viewer updates
+    return () => clearInterval(interval);
   }, [streamName, appName]);
 
-  // Update source URL when active variant changes
-  useEffect(() => {
-    const url = `/hls/${appName}/${streamName}_${activeVariant}.m3u8`;
-    setSourceUrl(url);
-  }, [activeVariant, appName, streamName]);
-
   return (
-    <main className="min-h-screen bg-black text-[#cdd6f4] font-sans flex flex-col">
-      <div className="p-4 bg-[#181825] border-b border-[#45475a] flex justify-between items-center">
-        <div className="flex items-center gap-4">
-          <Link href="/" className="p-2 hover:bg-[#313244] rounded-full transition-colors">
-            <ArrowLeft size={24} />
-          </Link>
-          <h1 className="text-xl font-bold flex items-center gap-2">
-            {streamName}
-            {streamInfo && (
-              <span className="text-xs bg-[#313244] px-2 py-1 rounded text-[#89b4fa] uppercase border border-[#45475a]">
-                {streamInfo.inputCodec}
-              </span>
-            )}
-          </h1>
-        </div>
-      </div>
-
-      <div className="flex-1 flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-6xl aspect-video bg-black rounded-xl overflow-hidden shadow-[0_0_40px_rgba(108,92,231,0.1)] border border-[#313244] relative">
+    <div className="flex h-[calc(100vh-64px)] overflow-hidden">
+      {/* Main Content (Player + Info) */}
+      <div className="flex-1 flex flex-col overflow-y-auto">
+        {/* Player Container */}
+        <div className="w-full bg-black aspect-video relative group">
           <MediaPlayer 
             title={streamName}
             src={sourceUrl}
             autoPlay
             aspectRatio="16/9"
+            streamType="live"
+            className="w-full h-full"
           >
             <MediaProvider />
-            <DefaultVideoLayout icons={defaultLayoutIcons} />
+            <DefaultVideoLayout 
+              icons={defaultLayoutIcons} 
+              slots={{
+                settingsMenuStartItems: null,
+              }}
+            />
+            <style jsx global>{`
+              /* Hide Playback Speed submenu and items */
+              [data-part="menu-item"][aria-label*="Speed"],
+              [data-part="menu-item"][aria-label*="speed"],
+              .vds-menu-item[aria-label*="Speed"],
+              .vds-menu-item[aria-label*="speed"] {
+                display: none !important;
+              }
+
+              /* Hide bitrate hint in quality menu */
+              [data-part="menu-item"][aria-label*="Quality"] .vds-menu-item-hint,
+              [data-part="menu-radio"][aria-label*="Quality"] .vds-menu-item-hint {
+                display: none !important;
+              }
+            `}</style>
           </MediaPlayer>
         </div>
 
-        <div className="w-full max-w-6xl mt-8 bg-[#181825] p-6 rounded-xl border border-[#45475a]">
-          <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-            <Settings size={20} className="text-[#f9e2af]" />
-            Quality Selector
-          </h3>
-          
-          <div className="flex flex-wrap gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-[#a6adc8] uppercase w-16">SRC:</span>
-              <button
-                onClick={() => setActiveVariant('src')}
-                className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${
-                  activeVariant === 'src' 
-                    ? 'bg-[#6c5ce7] text-white' 
-                    : 'bg-[#313244] hover:bg-[#45475a] text-[#cdd6f4]'
-                }`}
-              >
-                Source (Max)
-              </button>
-            </div>
-
-            {streamInfo && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-[#a6adc8] uppercase w-16">
-                  {streamInfo.inputCodec}:
-                </span>
-                {streamInfo.variants.map((v) => (
-                  <button
-                    key={v.name}
-                    onClick={() => setActiveVariant(`${v.codec}_${v.height}p`)}
-                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${
-                      activeVariant === `${v.codec}_${v.height}p`
-                        ? 'bg-[#6c5ce7] text-white' 
-                        : 'bg-[#313244] hover:bg-[#45475a] text-[#cdd6f4]'
-                    }`}
-                  >
-                    {v.height >= 2160 ? '4K' : `${v.height}p`}
-                  </button>
-                ))}
+        {/* Stream Info Section */}
+        <div className="p-4 space-y-4">
+           <div className="flex justify-between items-start">
+              <div className="flex gap-4">
+                 <div className="w-16 h-16 rounded-full bg-zinc-700 relative">
+                    <div className="absolute bottom-0 right-0 w-4 h-4 bg-red-500 rounded-full border-2 border-background"></div>
+                 </div>
+                 <div>
+                    <h1 className="text-xl font-bold">{streamName}</h1>
+                    <div className="flex items-center gap-2 text-zinc-400 text-sm">
+                       <p className="text-accent hover:underline cursor-pointer">Ryuu</p>
+                       <span>•</span>
+                       <p className="hover:text-accent cursor-pointer">Just Chatting</p>
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                       <span className="text-xs bg-zinc-800 px-2 py-0.5 rounded-full text-zinc-400">English</span>
+                       <span className="text-xs bg-zinc-800 px-2 py-0.5 rounded-full text-zinc-400">Live</span>
+                    </div>
+                 </div>
               </div>
-            )}
-          </div>
+              
+              <div className="flex gap-2">
+                 <button className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-1.5 rounded-md font-semibold transition-colors">
+                    <Heart size={18} />
+                    <span>Follow</span>
+                 </button>
+                 <button className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-1.5 rounded-md font-semibold transition-colors">
+                    <UserPlus size={18} />
+                    <span>Subscribe</span>
+                 </button>
+              </div>
+           </div>
+
+           <div className="flex justify-between items-center pt-4 border-t border-zinc-800">
+              <div className="flex items-center gap-6">
+                 <div className="flex items-center gap-2 text-red-500 font-semibold">
+                    <UserPlus size={20} />
+                    <span>{viewers} viewers</span>
+                 </div>
+                 <div className="text-zinc-400">
+                    2:45:12
+                 </div>
+              </div>
+              <div className="flex gap-2">
+                 <button className="p-2 hover:bg-zinc-800 rounded-md text-zinc-400 hover:text-white transition-colors">
+                    <Share2 size={20} />
+                 </button>
+                 <button className="p-2 hover:bg-zinc-800 rounded-md text-zinc-400 hover:text-white transition-colors">
+                    <MoreVertical size={20} />
+                 </button>
+              </div>
+           </div>
+           
+           {/* Debug Info (Hidden/Small) */}
+           {streamInfo && (
+              <div className="mt-8 p-4 bg-zinc-900 rounded-md text-xs text-zinc-500 font-mono">
+                 <p>Codec: {streamInfo.inputCodec}</p>
+                 <p>Source: {sourceUrl}</p>
+              </div>
+           )}
         </div>
       </div>
-    </main>
+
+      {/* Chat Sidebar (Placeholder) */}
+      <div className="w-[340px] border-l border-zinc-800 bg-secondary hidden lg:flex flex-col">
+         <div className="h-[50px] border-b border-zinc-800 flex items-center justify-center font-semibold text-sm uppercase tracking-wide">
+            Stream Chat
+         </div>
+         <div className="flex-1 p-4 flex flex-col items-center justify-center text-zinc-500 gap-2">
+            <MessageSquare size={32} />
+            <p>Welcome to the chat room!</p>
+         </div>
+         <div className="p-4 border-t border-zinc-800">
+            <div className="bg-zinc-800/50 rounded-md p-2 text-zinc-500 text-sm">
+               Send a message...
+            </div>
+            <div className="flex justify-between items-center mt-2">
+               <div className="text-xs font-bold text-accent">0 / 500</div>
+               <button className="bg-accent/50 text-white/50 px-3 py-1 rounded text-sm font-semibold cursor-not-allowed">Chat</button>
+            </div>
+         </div>
+      </div>
+    </div>
   );
 }
