@@ -6,8 +6,8 @@ MAINTAINER Tareq Alqutami <tareqaziz2010@gmail.com>
 
 # Versions of nginx, rtmp-module and ffmpeg 
 ARG  NGINX_VERSION=1.29.4
-ARG  NGINX_RTMP_MODULE_VERSION=1.2.2
-ARG  FFMPEG_VERSION=7.1
+ARG  NGINX_RTMP_MODULE_VERSION=master
+ARG  FFMPEG_VERSION=8.0.1
 
 # Install dependencies
 RUN apt-get update && \
@@ -29,9 +29,9 @@ RUN mkdir -p /tmp/build && \
 
 # Download rtmp-module source
 RUN cd /tmp/build && \
-    wget https://github.com/arut/nginx-rtmp-module/archive/v${NGINX_RTMP_MODULE_VERSION}.tar.gz && \
-    tar -zxf v${NGINX_RTMP_MODULE_VERSION}.tar.gz && \
-	rm v${NGINX_RTMP_MODULE_VERSION}.tar.gz
+    wget https://github.com/arut/nginx-rtmp-module/archive/${NGINX_RTMP_MODULE_VERSION}.tar.gz && \
+    tar -zxf ${NGINX_RTMP_MODULE_VERSION}.tar.gz && \
+	rm ${NGINX_RTMP_MODULE_VERSION}.tar.gz
 
 # Build nginx with nginx-rtmp module
 RUN cd /tmp/build/nginx-${NGINX_VERSION} && \
