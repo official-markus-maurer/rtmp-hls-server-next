@@ -23,7 +23,7 @@ RUN apt-get update && \
 # Build SVT-AV1 (required for FFmpeg 8.0+)
 RUN mkdir -p /tmp/build && \
     cd /tmp/build && \
-    git clone https://gitlab.com/AOMediaCodec/SVT-AV1.git && \
+    git clone --branch v2.3.0 --depth 1 https://gitlab.com/AOMediaCodec/SVT-AV1.git && \
     cd SVT-AV1 && \
     mkdir -p Build && \
     cd Build && \
@@ -69,7 +69,7 @@ RUN cd /tmp/build && \
   
 # Build ffmpeg
 RUN cd /tmp/build/ffmpeg-${FFMPEG_VERSION} && \
-  PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH" ./configure \
+  PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:/usr/local/lib64/pkgconfig:$PKG_CONFIG_PATH" ./configure \
 	  --enable-version3 \
 	  --enable-gpl \
 	  --enable-small \
