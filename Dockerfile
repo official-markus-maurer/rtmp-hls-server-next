@@ -17,8 +17,17 @@ RUN apt-get update && \
 		libpcre3-dev librtmp-dev libtheora-dev \
 		libvorbis-dev libvpx-dev libfreetype6-dev \
 		libmp3lame-dev libx264-dev libx265-dev libnuma-dev \
-		libaom-dev libsvtav1enc-dev && \
+		libaom-dev git cmake && \
     rm -rf /var/lib/apt/lists/*
+
+# Build SVT-AV1 (required for FFmpeg 8.0+)
+RUN cd /tmp/build && \
+    git clone https://gitlab.com/AOMediaCodec/SVT-AV1.git && \
+    cd SVT-AV1 && \
+    cd Build && \
+    cmake .. -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_DEC=OFF -DBUILD_SHARED_LIBS=OFF && \
+    make -j $(getconf _NPROCESSORS_ONLN) && \
+    make install
 	
 		
 # Download nginx source
@@ -58,7 +67,7 @@ RUN cd /tmp/build && \
   
 # Build ffmpeg
 RUN cd /tmp/build/ffmpeg-${FFMPEG_VERSION} && \
-  ./configure \
+  PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH" ./configure \
 	  --enable-version3 \
 	  --enable-gpl \
 	  --enable-small \
