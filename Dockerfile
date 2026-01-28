@@ -16,7 +16,8 @@ RUN apt-get update && \
 		openssl libssl-dev yasm pkg-config nasm zlib1g-dev \
 		libpcre3-dev librtmp-dev libtheora-dev \
 		libvorbis-dev libvpx-dev libfreetype6-dev \
-		libmp3lame-dev libx264-dev libx265-dev && \
+		libmp3lame-dev libx264-dev libx265-dev libnuma-dev \
+		libaom-dev libsvtav1enc-dev && \
     rm -rf /var/lib/apt/lists/*
 	
 		
