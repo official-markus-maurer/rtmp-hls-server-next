@@ -41,15 +41,54 @@ export default function SettingsPage() {
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [isCropModalOpen, setIsCropModalOpen] = useState(false);
 
+  // Performance Settings
+  const [transcodingPreset, setTranscodingPreset] = useState('p4');
+  const [latencyMode, setLatencyMode] = useState('ll');
+  const [savingPerf, setSavingPerf] = useState(false);
+
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/login');
     }
     if (session?.user) {
       fetchStreamKey();
+      fetchPerformanceSettings();
       setAvatarUrl(session.user.image || null);
     }
   }, [session, status, router]);
+
+  const fetchPerformanceSettings = async () => {
+      try {
+          const res = await fetch('/api/settings/performance');
+          if (res.ok) {
+              const data = await res.json();
+              setTranscodingPreset(data.transcodingPreset);
+              setLatencyMode(data.latencyMode);
+          }
+      } catch (e) {
+          console.error('Failed to fetch performance settings', e);
+      }
+  };
+
+  const savePerformanceSettings = async () => {
+      setSavingPerf(true);
+      try {
+          const res = await fetch('/api/settings/performance', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ transcodingPreset, latencyMode })
+          });
+          
+          if (res.ok) {
+              setMessage('Performance settings saved!');
+              setTimeout(() => setMessage(''), 3000);
+          }
+      } catch (e) {
+          console.error('Failed to save performance settings', e);
+      } finally {
+          setSavingPerf(false);
+      }
+  };
 
   const fetchStreamKey = async () => {
     try {
@@ -190,7 +229,61 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-4xl mx-auto p-8 relative">
-      <h1 className="text-2xl font-bold mb-8">Channel Settings</h1>
+      <h1 className="text-2xl font-bold mb-8">Channel Settings</h1><div className="bg-zinc-900/50 border border-white/5 rounded-2xl p-6">
+          <h2 className="text-lg font-semibold mb-4">Stream Performance</h2>
+          <div className="space-y-6">
+            
+            {/* Transcoding Preset */}
+            <div className="space-y-2">
+               <label className="text-sm text-zinc-400">Quality Preset (NVENC)</label>
+               <select 
+                  value={transcodingPreset}
+                  onChange={(e) => setTranscodingPreset(e.target.value)}
+                  className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-accent transition-colors"
+               >
+                  <option value="p1">P1 - Max Performance (Lowest Quality)</option>
+                  <option value="p2">P2 - Faster (Low Latency)</option>
+                  <option value="p3">P3 - Fast</option>
+                  <option value="p4">P4 - Balanced (Default)</option>
+                  <option value="p5">P5 - Slow</option>
+                  <option value="p6">P6 - Slower</option>
+                  <option value="p7">P7 - Max Quality (Highest Latency)</option>
+               </select>
+               <p className="text-xs text-zinc-500">
+                  Controls the trade-off between encoding speed and quality. Lower presets (P1-P3) are better for low latency.
+               </p>
+            </div>
+
+            {/* Latency Mode */}
+            <div className="space-y-2">
+               <label className="text-sm text-zinc-400">Latency Tuning</label>
+               <select 
+                  value={latencyMode}
+                  onChange={(e) => setLatencyMode(e.target.value)}
+                  className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-accent transition-colors"
+               >
+                  <option value="zerolatency">Zero Latency (Lowest possible)</option>
+                  <option value="ll">Low Latency (Recommended)</option>
+                  <option value="ull">Ultra Low Latency (Experimental)</option>
+                  <option value="hq">High Quality (Higher Latency)</option>
+               </select>
+               <p className="text-xs text-zinc-500">
+                  Configures the encoder for specific latency requirements.
+               </p>
+            </div>
+
+            <div className="flex justify-end pt-2">
+               <button 
+                 onClick={savePerformanceSettings}
+                 disabled={savingPerf}
+                 className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
+               >
+                 {savingPerf ? <RefreshCw size={18} className="animate-spin" /> : <Check size={18} />}
+                 <span>Save Settings</span>
+               </button>
+            </div>
+        </div>
+      </div>
       
       {/* Crop Modal */}
       {isCropModalOpen && (

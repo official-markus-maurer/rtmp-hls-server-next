@@ -29,4 +29,13 @@ try {
   }
 }
 
+try {
+  db.exec("ALTER TABLE users ADD COLUMN transcoding_preset TEXT DEFAULT 'p4'");
+  db.exec("ALTER TABLE users ADD COLUMN latency_mode TEXT DEFAULT 'll'");
+} catch (error: any) {
+    if (!error.message.includes('duplicate column name')) {
+        // console.error('Migration error:', error);
+    }
+}
+
 export default db;

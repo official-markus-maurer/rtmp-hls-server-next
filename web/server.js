@@ -232,6 +232,8 @@ app.prepare().then(() => {
             allow_origin: '*',
             mediaroot: MEDIA_ROOT
         },
+        // Transcode settings are handled manually via FFmpeg spawn above
+        // We keep auth settings
         auth: {
             api: true,
             api_user: 'admin',
@@ -298,13 +300,18 @@ app.prepare().then(() => {
         const appName = parts[1];
         const streamKey = parts[2];
         let username = streamKey; // Default to key if lookup fails
+        
+        let preset = 'p2';
+        let tune = 'll';
 
         try {
             const db = new Database(dbPath, { readonly: true });
-            const user = db.prepare('SELECT username FROM users WHERE stream_key = ?').get(streamKey);
+            const user = db.prepare('SELECT username, transcoding_preset, latency_mode FROM users WHERE stream_key = ?').get(streamKey);
             db.close();
             if (user) {
                 username = user.username;
+                if (user.transcoding_preset) preset = user.transcoding_preset;
+                if (user.latency_mode) tune = user.latency_mode;
             }
         } catch(e) { console.error(e); }
 
@@ -328,6 +335,7 @@ app.prepare().then(() => {
             const width = videoStream.width;
             const height = videoStream.height;
             console.log(`[FFmpeg] Input: ${inputCodec} ${width}x${height}`);
+            console.log(`[FFmpeg] Settings: Preset=${preset}, Tune=${tune}`);
 
             // Construct FFmpeg args
             const ffmpegArgs = [];
@@ -389,17 +397,20 @@ app.prepare().then(() => {
                  addVariantToMaster(variantName, bandwidth, `${targetWidth}x${targetHeight}`, `${targetHeight}p`);
 
                  // Variant Output Options
-                 ffmpegArgs.push('-c:v', codecName);
-                 ffmpegArgs.push('-preset', 'p4');
-                 ffmpegArgs.push('-b:v', bitrate);
-                 ffmpegArgs.push('-c:a', 'aac', '-b:a', '128k');
-                 ffmpegArgs.push('-vf', scaleFilter);
-                 ffmpegArgs.push('-f', 'hls');
-                 ffmpegArgs.push('-hls_time', '4');
-                 ffmpegArgs.push('-hls_list_size', '10');
-                 ffmpegArgs.push('-hls_flags', 'delete_segments');
-                 ffmpegArgs.push('-hls_segment_filename', path.join(outputDir, `${variantName}_%03d.ts`));
-                 ffmpegArgs.push(path.join(outputDir, `${variantName}.m3u8`));
+                ffmpegArgs.push('-c:v', codecName);
+                ffmpegArgs.push('-preset', preset);
+                ffmpegArgs.push('-tune', tune);
+                ffmpegArgs.push('-b:v', bitrate);
+                ffmpegArgs.push('-c:a', 'aac', '-b:a', '128k');
+                ffmpegArgs.push('-vf', scaleFilter);
+                ffmpegArgs.push('-g', '60');      // Keyframe every 2 seconds (assuming 30fps)
+                ffmpegArgs.push('-sc_threshold', '0'); // Disable scene change detection for consistent GOP
+                ffmpegArgs.push('-f', 'hls');
+                ffmpegArgs.push('-hls_time', '2'); // 2 second segments
+                ffmpegArgs.push('-hls_list_size', '6'); // Keep only 6 segments in playlist (12s buffer)
+                ffmpegArgs.push('-hls_flags', 'delete_segments');
+                ffmpegArgs.push('-hls_segment_filename', path.join(outputDir, `${variantName}_%03d.ts`));
+                ffmpegArgs.push(path.join(outputDir, `${variantName}.m3u8`));
             };
 
             // Dynamic Variants Logic
