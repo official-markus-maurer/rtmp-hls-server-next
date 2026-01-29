@@ -11,6 +11,7 @@ interface Stream {
   streamName: string;
   inputCodec: string;
   viewers: number;
+  avatar: string | null;
 }
 
 export default function Home() {
@@ -89,7 +90,15 @@ export default function Home() {
               </Link>
               
               <div className="flex gap-3 mt-3">
-                 <div className="w-10 h-10 rounded-full bg-zinc-700 flex-shrink-0"></div>
+                 <div className="w-10 h-10 rounded-full bg-zinc-700 flex-shrink-0 overflow-hidden border border-white/10">
+                    {stream.avatar ? (
+                      <img src={stream.avatar} alt={stream.streamName} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-xs text-zinc-400">
+                        {stream.streamName.substring(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                 </div>
                  <div className="overflow-hidden">
                     <Link href={`/watch/${stream.streamName}`} className="font-bold text-sm hover:text-accent truncate block">
                       {stream.streamName}

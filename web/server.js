@@ -25,6 +25,11 @@ const FFPROBE_PATH = path.join(BIN_DIR, 'ffprobe.exe');
 console.log(`[Config] FFmpeg: ${FFMPEG_PATH}`);
 console.log(`[Config] FFprobe: ${FFPROBE_PATH}`);
 
+// Initialize Database for RTMP Auth
+const Database = require('better-sqlite3');
+const dbPath = path.join(__dirname, 'database.sqlite');
+// Database instance will be created inside the event handler to ensure connection
+
 // Media Directory
 const MEDIA_ROOT = path.join(__dirname, 'public', 'hls');
 if (!fs.existsSync(MEDIA_ROOT)) {
@@ -47,7 +52,7 @@ setInterval(() => {
             }
         });
         if (viewers.size === 0) {
-             // Optional: clean up empty stream entries if needed, 
+             // TODO: clean up empty stream entries if needed, 
              // but keeping them is fine for now
         }
     });
@@ -91,8 +96,48 @@ app.prepare().then(() => {
         next();
     });
 
+    // Serve Avatars (Debug Mode)
+    server.use('/avatars', (req, res, next) => {
+        // console.log(`[Avatar Request] ${req.method} ${req.url}`);
+        next();
+    });
+    
+    // Explicitly handle avatar files to ensure they are served correctly
+    // IMPORTANT: Next.js dev server might conflict, but in production (node server.js), this should work.
+    // We need to make sure 'public/avatars' is resolved relative to CWD or __dirname correctly.
+    const AVATAR_ROOT = path.join(__dirname, 'public', 'avatars');
+    
+    server.get('/avatars/:filename', (req, res) => {
+        const filename = req.params.filename;
+        const filepath = path.join(AVATAR_ROOT, filename);
+        
+        // Prevent directory traversal
+        if (!filepath.startsWith(AVATAR_ROOT)) {
+             return res.status(403).send('Forbidden');
+        }
+
+        // Check if file exists
+        if (fs.existsSync(filepath)) {
+            // Disable caching to ensure new avatar shows up immediately
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+            res.sendFile(filepath);
+        } else {
+            console.error(`[Avatar] File not found: ${filepath}`);
+            res.status(404).send('Not Found');
+        }
+    });
+    
+    // Fallback static serve (optional, but good for safety)
+    server.use('/avatars', express.static(path.join(__dirname, 'public', 'avatars')));
+
     // Serve HLS files with correct headers
     server.use('/hls', (req, res, next) => {
+        // Enable CORS for HLS
+        res.header("Access-Control-Allow-Origin", "*");
+        res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+
         // Viewer Tracking Middleware
         const parts = req.path.split('/');
         // Path format: /appName/streamName/file... or /appName/streamName.m3u8
@@ -130,17 +175,35 @@ app.prepare().then(() => {
     // API Endpoint for Active Streams
     server.get('/api/streams', (req, res) => {
         const streams = [];
+        const db = new Database(dbPath, { readonly: true });
+        
         activeTranscodes.forEach((data, id) => {
             const viewerCount = viewerStats.has(data.streamName) ? viewerStats.get(data.streamName).size : 0;
+            
+            // Fetch avatar from DB
+            let avatar = null;
+            try {
+                const user = db.prepare('SELECT avatar FROM users WHERE username = ?').get(data.streamName);
+                if (user && user.avatar) {
+                    avatar = user.avatar;
+                }
+            } catch (e) {
+                console.error('Error fetching avatar for stream:', e);
+            }
+
             streams.push({
                 id: id,
                 appName: data.appName,
                 streamName: data.streamName,
                 inputCodec: data.inputCodec,
                 variants: data.variants || [],
-                viewers: viewerCount
+                viewers: viewerCount,
+                startTime: data.startTime,
+                avatar: avatar // Add avatar to response
             });
         });
+        
+        db.close();
         res.json(streams);
     });
 
@@ -168,10 +231,57 @@ app.prepare().then(() => {
             port: 8000,
             allow_origin: '*',
             mediaroot: MEDIA_ROOT
+        },
+        auth: {
+            api: true,
+            api_user: 'admin',
+            api_pass: 'admin',
+            play: false,
+            publish: false,
+            secret: 'nodemedia2017privatekey'
         }
     };
 
     const nms = new NodeMediaServer(nmsConfig);
+
+    // Global Error Handler to prevent crashes
+    process.on('uncaughtException', (err) => {
+        console.error('[System] Uncaught Exception:', err);
+    });
+
+    // RTMP Authentication
+    nms.on('prePublish', async (id, StreamPath, args) => {
+        let sessionID = id;
+        let _streamPath = StreamPath;
+        if (typeof id === 'object') {
+            sessionID = id.id;
+            _streamPath = StreamPath || id.publishStreamPath || id.streamPath;
+        }
+
+        // StreamPath is like /live/streamKey
+        const parts = _streamPath.split('/');
+        const streamKey = parts[2];
+
+        console.log(`[RTMP Auth] Checking stream key: ${streamKey}`);
+
+        try {
+            const db = new Database(dbPath, { readonly: true });
+            const user = db.prepare('SELECT username FROM users WHERE stream_key = ?').get(streamKey);
+            db.close();
+
+            if (!user) {
+                console.log(`[RTMP Auth] REJECTED: Invalid stream key ${streamKey}`);
+                const session = nms.getSession(sessionID);
+                session.reject();
+            } else {
+                console.log(`[RTMP Auth] ACCEPTED: Stream started by ${user.username}`);
+            }
+        } catch (err) {
+            console.error('[RTMP Auth] Database error:', err);
+            const session = nms.getSession(sessionID);
+            session.reject();
+        }
+    });
 
     nms.on('postPublish', async (id, StreamPath, args) => {
         let sessionID = id;
@@ -184,11 +294,25 @@ app.prepare().then(() => {
         if (!streamPath) return;
         console.log(`[RTMP] Stream started: ${streamPath} (ID: ${sessionID})`);
         
-        const appName = streamPath.split('/')[1];
-        const streamName = streamPath.split('/')[2];
+        const parts = streamPath.split('/');
+        const appName = parts[1];
+        const streamKey = parts[2];
+        let username = streamKey; // Default to key if lookup fails
+
+        try {
+            const db = new Database(dbPath, { readonly: true });
+            const user = db.prepare('SELECT username FROM users WHERE stream_key = ?').get(streamKey);
+            db.close();
+            if (user) {
+                username = user.username;
+            }
+        } catch(e) { console.error(e); }
+
         const validRtmpUrl = `rtmp://localhost:${RTMP_PORT}${streamPath}`;
         
-        const outputDir = path.join(MEDIA_ROOT, appName);
+        // Output Directory should be based on USERNAME so the URL is friendly
+        // e.g. /hls/live/ryuu/index.m3u8
+        const outputDir = path.join(MEDIA_ROOT, appName, username);
         if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
         try {
@@ -230,7 +354,7 @@ app.prepare().then(() => {
             ffmpegArgs.push('-hls_list_size', '10');
             ffmpegArgs.push('-hls_flags', 'delete_segments');
             
-            const srcName = `${streamName}_src`;
+            const srcName = `${username}_src`;
             // Estimate source bitrate based on resolution (rough heuristic)
             // Using realistic bitrates for livestreaming (e.g., 6Mbps for 1080p)
             const srcBitrate = height >= 2160 ? 15000000 : (height >= 1080 ? 6000000 : 3000000);
@@ -256,7 +380,7 @@ app.prepare().then(() => {
                      scaleFilter = `scale_cuda=-1:${targetHeight}`;
                  }
 
-                 const variantName = `${streamName}_${targetCodec}_${targetHeight}p`;
+                 const variantName = `${username}_${targetCodec}_${targetHeight}p`;
                  variants.push({ codec: targetCodec, height: targetHeight, name: variantName });
                  
                  // Add to master playlist
@@ -298,7 +422,7 @@ app.prepare().then(() => {
             // Better to write it immediately so the player can load it, even if variants aren't fully ready yet.
             // However, the files need to exist. FFmpeg creates them. 
             // We'll write the master playlist file using fs.writeFile
-            const masterPlaylistPath = path.join(outputDir, `${streamName}.m3u8`);
+            const masterPlaylistPath = path.join(outputDir, `${username}.m3u8`);
             fs.writeFileSync(masterPlaylistPath, masterContent);
             console.log(`[HLS] Generated Master Playlist at ${masterPlaylistPath}`);
 
@@ -308,22 +432,62 @@ app.prepare().then(() => {
             // Thumbnail Generation Loop
             const thumbnailInterval = setInterval(() => {
                 const thumbnailPath = path.join(outputDir, 'thumbnail.jpg');
-                // Use the RTMP source to capture a frame. 
-                // -y overwrites. -vframes 1 takes one frame. -ss 00:00:01 starts immediately (live).
-                // Scale to 480w to save bandwidth.
-                const thumbCmd = `"${FFMPEG_PATH}" -y -i "${validRtmpUrl}" -ss 00:00:01 -vframes 1 -vf scale=480:-1 -q:v 5 "${thumbnailPath}"`;
                 
-                exec(thumbCmd, (err) => {
-                    if (err) {
-                        // Ignore errors (stream might be buffering or ending)
-                        // console.error('[Thumbnail] Error:', err.message);
+                // Find the latest .ts file in the output directory
+                // We prefer using the generated segments on disk to avoid creating new RTMP connections
+                fs.readdir(outputDir, (err, files) => {
+                    if (err) return;
+
+                    // Filter for .ts files
+                    const tsFiles = files.filter(f => f.endsWith('.ts'));
+                    
+                    if (tsFiles.length === 0) {
+                        // If no segments yet, maybe fallback to RTMP or just skip this turn
+                        // console.log('[Thumbnail] No segments found yet, skipping...');
+                        return;
                     }
+
+                    // Sort by modification time (newest first)
+                    // Since file names usually contain sequence numbers, we can also sort by name if format is consistent
+                    // But stat is safer.
+                    const latestFile = tsFiles.map(f => {
+                        return { name: f, time: fs.statSync(path.join(outputDir, f)).mtime.getTime() };
+                    }).sort((a, b) => b.time - a.time)[0];
+
+                    if (!latestFile) return;
+
+                    const inputPath = path.join(outputDir, latestFile.name);
+
+                    const thumbArgs = [
+                        '-y',
+                        '-v', 'error',
+                        '-i', inputPath,
+                        '-vframes', '1',
+                        '-vf', 'scale=480:-1',
+                        '-q:v', '5',
+                        thumbnailPath
+                    ];
+    
+                    const thumbProc = spawn(FFMPEG_PATH, thumbArgs);
+                    
+                    thumbProc.on('error', (err) => {
+                         // console.error('[Thumbnail] Spawn Error:', err.message);
+                    });
+    
+                    thumbProc.on('close', (code) => {
+                         // console.log(`[Thumbnail] Process exited with code ${code}`);
+                    });
                 });
+
             }, 60000); // Update every 60 seconds
 
             cmd.stdout.on('data', d => {}); // consume stdout
             cmd.stderr.on('data', d => {
                  // console.error(`[FFmpeg Log] ${d}`); // Optional: enable for debugging
+            });
+            
+            cmd.on('error', (err) => {
+                console.error(`[FFmpeg] Process Error:`, err);
             });
 
             cmd.on('close', (code) => {
@@ -331,7 +495,16 @@ app.prepare().then(() => {
                 clearInterval(thumbnailInterval);
             });
 
-            activeTranscodes.set(sessionID, { cmd, streamPath, appName, streamName, inputCodec, variants, thumbnailInterval });
+            activeTranscodes.set(sessionID, { 
+                cmd, 
+                streamPath, 
+                appName, 
+                streamName: username, // Important: Use username as the stream name for frontend
+                inputCodec, 
+                variants, 
+                thumbnailInterval,
+                startTime: Date.now()
+            });
 
         } catch (err) {
             console.error('[Error] FFprobe/FFmpeg failed:', err);
@@ -347,8 +520,14 @@ app.prepare().then(() => {
         }
 
         if (activeTranscodes.has(sessionID)) {
-            const { cmd } = activeTranscodes.get(sessionID);
+            const { cmd, thumbnailInterval } = activeTranscodes.get(sessionID);
             console.log(`[FFmpeg] Killing process for ${streamPath}`);
+            
+            // Clear interval immediately to prevent race conditions
+            if (thumbnailInterval) {
+                clearInterval(thumbnailInterval);
+            }
+            
             cmd.kill('SIGKILL');
             activeTranscodes.delete(sessionID);
         }

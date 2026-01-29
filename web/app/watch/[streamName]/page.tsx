@@ -3,9 +3,9 @@
 
 import { useEffect, useState, use } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Settings, Share2, MoreVertical, Heart, UserPlus, MessageSquare } from 'lucide-react';
+import { Settings, Share2, MoreVertical, Heart, UserPlus, MessageSquare, Clock, Activity } from 'lucide-react';
 
-import { MediaPlayer, MediaProvider } from '@vidstack/react';
+import { MediaPlayer, MediaProvider, useMediaState, useMediaPlayer } from '@vidstack/react';
 import { DefaultVideoLayout, defaultLayoutIcons } from '@vidstack/react/player/layouts/default';
 import '@vidstack/react/player/styles/default/theme.css';
 import '@vidstack/react/player/styles/default/layouts/video.css';
@@ -23,6 +23,8 @@ interface Stream {
   inputCodec: string;
   variants: StreamVariant[];
   viewers: number;
+  startTime: number;
+  avatar: string | null;
 }
 
 export default function WatchPage({ params }: { params: Promise<{ streamName: string }> }) {
@@ -33,9 +35,12 @@ export default function WatchPage({ params }: { params: Promise<{ streamName: st
 
   const [streamInfo, setStreamInfo] = useState<Stream | null>(null);
   const [viewers, setViewers] = useState(0);
+  const [uptime, setUptime] = useState('00:00:00');
   
   // Master playlist URL
-  const sourceUrl = `/hls/${appName}/${streamName}.m3u8`;
+  // We need to handle the case where the master playlist URL might need the nested folder structure
+  // e.g. /hls/live/RyuuM3gum1n/RyuuM3gum1n.m3u8
+  const sourceUrl = `/hls/${appName}/${streamName}/${streamName}.m3u8`;
 
   // Fetch Stream Info
   useEffect(() => {
@@ -60,6 +65,28 @@ export default function WatchPage({ params }: { params: Promise<{ streamName: st
     return () => clearInterval(interval);
   }, [streamName, appName]);
 
+  // Calculate Uptime
+  useEffect(() => {
+    if (!streamInfo?.startTime) return;
+
+    const updateTimer = () => {
+      const now = Date.now();
+      const diff = now - streamInfo.startTime;
+      
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+      setUptime(
+        `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+      );
+    };
+
+    updateTimer();
+    const timer = setInterval(updateTimer, 1000);
+    return () => clearInterval(timer);
+  }, [streamInfo?.startTime]);
+
   return (
     <div className="flex h-[calc(100vh-64px)] overflow-hidden">
       {/* Main Content (Player + Info) */}
@@ -81,6 +108,7 @@ export default function WatchPage({ params }: { params: Promise<{ streamName: st
                 settingsMenuStartItems: null,
               }}
             />
+            <LatencyDisplay />
             <style jsx global>{`
               /* Hide Playback Speed submenu and items */
               [data-part="menu-item"][aria-label*="Speed"],
@@ -103,7 +131,14 @@ export default function WatchPage({ params }: { params: Promise<{ streamName: st
         <div className="p-4 space-y-4">
            <div className="flex justify-between items-start">
               <div className="flex gap-4">
-                 <div className="w-16 h-16 rounded-full bg-zinc-700 relative">
+                 <div className="w-16 h-16 rounded-full bg-zinc-700 relative overflow-hidden border-2 border-white/10">
+                    {streamInfo?.avatar ? (
+                      <img src={streamInfo.avatar} alt={streamName} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-xl text-zinc-400 font-bold">
+                        {streamName.substring(0, 2).toUpperCase()}
+                      </div>
+                    )}
                     <div className="absolute bottom-0 right-0 w-4 h-4 bg-red-500 rounded-full border-2 border-background"></div>
                  </div>
                  <div>
@@ -138,8 +173,9 @@ export default function WatchPage({ params }: { params: Promise<{ streamName: st
                     <UserPlus size={20} />
                     <span>{viewers} viewers</span>
                  </div>
-                 <div className="text-zinc-400">
-                    2:45:12
+                 <div className="flex items-center gap-2 text-zinc-400">
+                    <Clock size={20} />
+                    <span>{uptime}</span>
                  </div>
               </div>
               <div className="flex gap-2">
@@ -181,6 +217,42 @@ export default function WatchPage({ params }: { params: Promise<{ streamName: st
             </div>
          </div>
       </div>
+    </div>
+  );
+}
+
+function LatencyDisplay() {
+  const liveEdge = useMediaState('liveEdge');
+  const currentTime = useMediaState('currentTime');
+  const duration = useMediaState('duration');
+  
+  // Estimate latency: Duration (Live Edge) - Current Time
+  // Note: For HLS, duration keeps increasing. 'seekableEnd' is better but not directly in useMediaState hooks sometimes.
+  // Vidstack's liveEdgeTolerance might be relevant, but let's try a simple calc if possible.
+  // Actually, vidstack provides `live` state. 
+  // A better approximation for latency in HLS player is (seekableEnd - currentTime).
+  
+  const player = useMediaPlayer();
+  const [latency, setLatency] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+        if (player) {
+            const state = player.state;
+            const seekableEnd = state.seekableEnd;
+            const current = state.currentTime;
+            if (seekableEnd > 0 && current > 0) {
+                setLatency(Math.max(0, seekableEnd - current));
+            }
+        }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [player]);
+
+  return (
+    <div className="absolute top-4 right-4 bg-black/60 px-2 py-1 rounded text-xs font-mono text-white flex items-center gap-2 z-50 pointer-events-none">
+       <Activity size={12} className={latency < 10 ? "text-green-500" : "text-yellow-500"} />
+       <span>Latency: {latency.toFixed(1)}s</span>
     </div>
   );
 }

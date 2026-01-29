@@ -1,8 +1,20 @@
 
+'use client';
+
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Search, User, Bell, Radio } from 'lucide-react';
+import Image from 'next/image';
+import { Search, User, Bell, Radio, LogOut } from 'lucide-react';
+import { useSession, signOut } from 'next-auth/react';
 
 export default function Navbar() {
+  const { data: session } = useSession();
+  const user = session?.user as any;
+
+  const handleLogout = async () => {
+    await signOut({ callbackUrl: '/' });
+  };
+
   return (
     <nav className="h-[64px] bg-secondary/80 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-6 sticky top-0 z-50 shadow-sm">
       {/* Left: Logo */}
@@ -40,13 +52,50 @@ export default function Navbar() {
 
       {/* Right: User Actions */}
       <div className="flex items-center gap-4">
-        <button className="relative p-2 hover:bg-white/5 rounded-full transition-colors text-zinc-400 hover:text-white">
-          <Bell size={20} />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-secondary"></span>
-        </button>
-        <button className="w-9 h-9 bg-accent/10 hover:bg-accent/20 border border-accent/20 rounded-full flex items-center justify-center text-accent transition-colors">
-          <User size={20} />
-        </button>
+        {user ? (
+          <>
+             <button className="relative p-2 hover:bg-white/5 rounded-full transition-colors text-zinc-400 hover:text-white">
+               <Bell size={20} />
+               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-secondary"></span>
+             </button>
+             
+             <div className="flex items-center gap-3 pl-2 border-l border-white/10">
+                <div className="text-right hidden lg:block">
+                   <p className="text-sm font-bold text-white leading-none">{user.name}</p>
+                   {user.streamKey && <p className="text-xs text-zinc-500 font-mono mt-0.5">Stream Key: ...{user.streamKey.slice(-4)}</p>}
+                </div>
+                <Link href="/settings" className="w-9 h-9 bg-zinc-800 hover:bg-zinc-700 rounded-full flex items-center justify-center text-zinc-400 hover:text-white transition-colors overflow-hidden border border-white/10">
+                  {user.image ? (
+                    <Image src={user.image} alt="Avatar" width={36} height={36} className="object-cover w-full h-full" />
+                  ) : (
+                    <User size={20} />
+                  )}
+                </Link>
+                <button 
+                  onClick={handleLogout}
+                  className="p-2 hover:bg-white/5 rounded-full text-zinc-400 hover:text-red-500 transition-colors"
+                  title="Log Out"
+                >
+                  <LogOut size={20} />
+                </button>
+             </div>
+          </>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Link 
+              href="/login" 
+              className="px-4 py-2 text-sm font-semibold text-white hover:text-accent transition-colors"
+            >
+              Log In
+            </Link>
+            <Link 
+              href="/register" 
+              className="px-4 py-2 text-sm font-semibold bg-accent hover:bg-accent-hover text-white rounded-lg transition-colors"
+            >
+              Sign Up
+            </Link>
+          </div>
+        )}
       </div>
     </nav>
   );
